@@ -386,6 +386,6 @@ const server = createServer(async (req, res) => {
   res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-server.listen(PORT, () => {
-  console.log(`project-claim-api listening on port ${PORT}`);
+server.listen(PORT, '::', () => {
+  console.log(`project-claim-api listening on [::]:${PORT}`);
 });
