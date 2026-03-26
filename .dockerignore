@@ -1,4 +1,7 @@
+.env
+.env.*
+.git
+.gitignore
 node_modules
 dist
-.env
 .lit-auth-storage
