@@ -8,7 +8,7 @@ import { Signature } from 'ethers';
 import { createLitClient } from '@lit-protocol/lit-client';
 import { getIpfsId } from '@lit-protocol/lit-client/ipfs';
 import { nagaDev, nagaTest, naga as nagaMainnet } from '@lit-protocol/networks';
-import { createAuthManager, storagePlugins } from '@lit-protocol/auth';
+import { createAuthManager } from '@lit-protocol/auth';
 import { LitActionResource } from '@lit-protocol/auth-helpers';
 import { LIT_ABILITY } from '@lit-protocol/constants';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
@@ -125,14 +125,23 @@ function getPrivateKey(): `0x${string}` {
   return cachedPrivateKey;
 }
 
-function createFreshAuthManager() {
-  const storage = storagePlugins.localStorageNode({
-    appName: 'drips-app',
-    networkName: getLitNetworkName(),
-    storagePath: join(currentDir, '.lit-auth-storage'),
-  });
-  return createAuthManager({ storage });
-}
+const noopStorage = {
+  config: {},
+  async read() { return null; },
+  async write() {},
+  async writeInnerDelegationAuthSig() {},
+  async readInnerDelegationAuthSig() { return null; },
+  async writePKPTokens() {},
+  async readPKPTokens() { return null; },
+  async writePKPDetails() {},
+  async readPKPDetails() { return null; },
+  async writePKPTokensByAddress() {},
+  async readPKPTokensByAddress() { return null; },
+  async writePKPs() {},
+  async readPKPs() { return null; },
+};
+
+const authManager = createAuthManager({ storage: noopStorage });
 
 const LIT_TIMEOUT_MS = 60_000;
 const LIT_MAX_RETRIES = 2;
@@ -157,7 +166,6 @@ async function executeLitAction(source: { kind: string; name: string }, chainNam
     const account = privateKeyToAccount(getPrivateKey());
     const ipfsCid = await getLitActionIpfsCid();
 
-    const authManager = createFreshAuthManager();
     const authContext = await authManager.createEoaAuthContext({
       litClient,
       config: { account },
