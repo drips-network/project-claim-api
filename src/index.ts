@@ -141,7 +141,9 @@ const noopStorage = {
   async readPKPs() { return null; },
 };
 
-const authManager = createAuthManager({ storage: noopStorage });
+function createFreshAuthManager() {
+  return createAuthManager({ storage: noopStorage });
+}
 
 const LIT_TIMEOUT_MS = 60_000;
 const LIT_MAX_RETRIES = 2;
@@ -166,7 +168,7 @@ async function executeLitAction(source: { kind: string; name: string }, chainNam
     const account = privateKeyToAccount(getPrivateKey());
     const ipfsCid = await getLitActionIpfsCid();
 
-    const authContext = await authManager.createEoaAuthContext({
+    const authContext = await createFreshAuthManager().createEoaAuthContext({
       litClient,
       config: { account },
       authConfig: {
