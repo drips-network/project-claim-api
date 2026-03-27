@@ -172,6 +172,7 @@ async function executeLitAction(source: { kind: string; name: string }, chainNam
       litClient,
       config: { account },
       authConfig: {
+        expiration: new Date(Date.now() + 1000 * 60 * 15).toISOString(),
         resources: [
           {
             resource: new LitActionResource(ipfsCid),
