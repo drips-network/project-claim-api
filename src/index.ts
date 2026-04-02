@@ -269,8 +269,8 @@ async function handlePost(bodyText: string) {
   const { sourceKind, name, chainName } = payload;
 
   // Rate limit
+  const rateLimitKey = `lit-owner-sig:${sourceKind}:${name}:${chainName}`;
   if (redis) {
-    const rateLimitKey = `lit-owner-sig:${sourceKind}:${name}:${chainName}`;
     const existing = await redis.get(rateLimitKey);
 
     if (existing) {
@@ -279,8 +279,6 @@ async function handlePost(bodyText: string) {
         'A signature was recently requested for this source and chain. Please wait before trying again.',
       );
     }
-
-    await redis.set(rateLimitKey, '1', { EX: RATE_LIMIT_COOLDOWN_SECONDS });
   }
 
   // Pre-validate source
@@ -368,6 +366,10 @@ async function handlePost(bodyText: string) {
     const sig = Signature.from(chainSig.signature + '0' + chainSig.recoveryId);
     const r = sig.r;
     const vs = sig.yParityAndS;
+
+    if (redis) {
+      await redis.set(rateLimitKey, '1', { EX: RATE_LIMIT_COOLDOWN_SECONDS });
+    }
 
     return jsonResponse(200, { sourceId, name: responseName, owner, timestamp, r, vs });
   } catch (e) {
