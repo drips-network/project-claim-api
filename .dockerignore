@@ -4,4 +4,3 @@
 .gitignore
 node_modules
 dist
-.lit-auth-storage

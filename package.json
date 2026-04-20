@@ -9,16 +9,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@lit-protocol/auth": "^8.2.3",
-    "@lit-protocol/auth-helpers": "^8.2.0",
-    "@lit-protocol/constants": "^9.0.1",
-    "@lit-protocol/lit-client": "^8.3.1",
-    "@lit-protocol/networks": "^8.4.1",
     "@octokit/rest": "^21.0.2",
     "dotenv": "^17.3.1",
-    "ethers": "^6.15.0",
     "redis": "^4.6.14",
-    "viem": "^2.38.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {

@@ -48,8 +48,7 @@ Returns `{ "status": "ok" }`.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `PORT` | No | `3100` | Port to listen on |
-| `LIT_NETWORK` | No | `naga` | Lit network: `dev`, `test`, or `naga` |
-| `LIT_ETHEREUM_PRIVATE_KEY` | For `test`/`naga` | - | Private key for Lit auth. Optional on `dev`. |
+| `LIT_CHIPOTLE_API_KEY` | Yes | - | API key for the Lit Chipotle API (see [Lit Express Dashboard](https://dashboard.chipotle.litprotocol.com/)) |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | No | - | GitHub token for FUNDING.json lookups (avoids rate limits) |
 | `CACHE_REDIS_CONNECTION_STRING` | No | - | Redis URL for rate limiting (e.g. `redis://localhost:6379`) |
 
@@ -79,4 +78,6 @@ The GitHub Actions workflow in `.github/workflows/publish-docker.yml` builds and
 
 ## Architecture
 
-This service was extracted from the main Drips app to isolate the Lit Protocol SDK (~845MB) and its ethers v5/v6 dependency conflicts from the SvelteKit build. The app proxies requests to this service via `PROJECT_CLAIM_API_URL`.
+This service proxies requests to the Lit Chipotle REST API, which executes a Lit Action (see `src/oracle-code.txt`) that produces signed ownership claims. The main Drips app talks to this service via `PROJECT_CLAIM_API_URL`.
+
+The oracle code in `src/oracle-code.txt` is built from the Drips contracts repo (see `contracts/oracle/`). To regenerate it, run `npm run getDeployment ./out` in the contracts oracle directory and copy the output here.
