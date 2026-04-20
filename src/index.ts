@@ -4,14 +4,6 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { Signature } from 'ethers';
-import { createLitClient } from '@lit-protocol/lit-client';
-import { getIpfsId } from '@lit-protocol/lit-client/ipfs';
-import { nagaDev, nagaTest, naga as nagaMainnet } from '@lit-protocol/networks';
-import { createAuthManager } from '@lit-protocol/auth';
-import { LitActionResource } from '@lit-protocol/auth-helpers';
-import { LIT_ABILITY } from '@lit-protocol/constants';
-import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { Octokit } from '@octokit/rest';
 import redisSdk from 'redis';
 
@@ -19,10 +11,13 @@ import redisSdk from 'redis';
 
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 
-const LIT_ETHEREUM_PRIVATE_KEY = process.env.LIT_ETHEREUM_PRIVATE_KEY;
-const LIT_NETWORK_ENV = process.env.LIT_NETWORK;
+const LIT_CHIPOTLE_API_KEY = process.env.LIT_CHIPOTLE_API_KEY;
 const GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
 const CACHE_REDIS_CONNECTION_STRING = process.env.CACHE_REDIS_CONNECTION_STRING;
+
+if (!LIT_CHIPOTLE_API_KEY) {
+  throw new Error('LIT_CHIPOTLE_API_KEY is required');
+}
 
 const octokit = new Octokit({ auth: GITHUB_PERSONAL_ACCESS_TOKEN });
 
@@ -79,132 +74,67 @@ const payloadSchema = z.discriminatedUnion('sourceKind', [
 
 // --- Lit Protocol helpers ---
 
-function getLitNetworkName() {
-  return LIT_NETWORK_ENV ?? 'naga';
-}
-
-function getLitNetwork() {
-  const networkName = getLitNetworkName();
-  switch (networkName) {
-    case 'dev':
-      return nagaDev;
-    case 'test':
-      return nagaTest;
-    case 'naga':
-      return nagaMainnet;
-    default:
-      throw new Error(`Unknown LIT_NETWORK: ${networkName}`);
-  }
-}
-
-let cachedIpfsCid: string | undefined;
-async function getLitActionIpfsCid(): Promise<string> {
-  if (!cachedIpfsCid) {
-    cachedIpfsCid = await getIpfsId(litActionCode);
-  }
-  return cachedIpfsCid;
-}
-
-let cachedPrivateKey: `0x${string}` | undefined;
-function getPrivateKey(): `0x${string}` {
-  if (cachedPrivateKey) return cachedPrivateKey;
-
-  if (LIT_ETHEREUM_PRIVATE_KEY) {
-    cachedPrivateKey = LIT_ETHEREUM_PRIVATE_KEY as `0x${string}`;
-    return cachedPrivateKey;
-  }
-
-  const litNetwork = getLitNetworkName();
-  if (litNetwork !== 'dev') {
-    throw new Error(
-      `LIT_ETHEREUM_PRIVATE_KEY is required for Lit network '${litNetwork}'. It is only optional on 'dev'.`,
-    );
-  }
-
-  cachedPrivateKey = generatePrivateKey();
-  return cachedPrivateKey;
-}
-
-const noopStorage = {
-  config: {},
-  async read() { return null; },
-  async write() {},
-  async writeInnerDelegationAuthSig() {},
-  async readInnerDelegationAuthSig() { return null; },
-  async writePKPTokens() {},
-  async readPKPTokens() { return null; },
-  async writePKPDetails() {},
-  async readPKPDetails() { return null; },
-  async writePKPTokensByAddress() {},
-  async readPKPTokensByAddress() { return null; },
-  async writePKPs() {},
-  async readPKPs() { return null; },
-};
-
-function createFreshAuthManager() {
-  return createAuthManager({ storage: noopStorage });
-}
-
+const LIT_API_URL = 'https://api.chipotle.litprotocol.com/core/v1/lit_action';
 const LIT_TIMEOUT_MS = 60_000;
 const LIT_MAX_RETRIES = 2;
 const LIT_RETRY_BASE_DELAY_MS = 2_000;
 const RATE_LIMIT_COOLDOWN_SECONDS = 60;
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+const litActionResponseSchema = z.object({
+  logs: z.string().optional(),
+  response: z.object({
+    oracleAddress: z.string(),
+    sourceId: z.number(),
+    name: z.string(),
+    timestamp: z.number(),
+    chains: z.record(
+      z.string(),
+      z.object({
+        owner: z.string(),
+        r: z.string(),
+        vs: z.string(),
+      }),
     ),
-  ]);
-}
+  }),
+});
 
-async function executeLitAction(source: { kind: string; name: string }, chainName: string) {
-  let litClient;
+type LitActionResponse = z.infer<typeof litActionResponseSchema>['response'];
 
-  try {
-    litClient = await createLitClient({ network: getLitNetwork() });
-
-    const account = privateKeyToAccount(getPrivateKey());
-    const ipfsCid = await getLitActionIpfsCid();
-
-    const authContext = await createFreshAuthManager().createEoaAuthContext({
-      litClient,
-      config: { account },
-      authConfig: {
-        expiration: new Date(Date.now() + 1000 * 60 * 15).toISOString(),
-        resources: [
-          {
-            resource: new LitActionResource(ipfsCid),
-            ability: LIT_ABILITY.LitActionExecution,
-          },
-        ],
-      },
-    });
-
-    return await litClient.executeJs({
+async function executeLitAction(
+  source: { kind: string; name: string },
+  chainName: string,
+): Promise<LitActionResponse> {
+  const res = await fetch(LIT_API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'X-Api-Key': LIT_CHIPOTLE_API_KEY!,
+    },
+    body: JSON.stringify({
       code: litActionCode,
-      jsParams: {
-        source,
-        chains: [chainName],
-      },
-      authContext,
-    });
-  } finally {
-    litClient?.disconnect();
+      js_params: { source, chains: [chainName] },
+    }),
+    signal: AbortSignal.timeout(LIT_TIMEOUT_MS),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    throw new Error(`Lit API HTTP ${res.status}: ${errBody}`);
   }
+
+  const parsed = litActionResponseSchema.parse(await res.json());
+  return parsed.response;
 }
 
-async function executeLitActionWithRetry(source: { kind: string; name: string }, chainName: string) {
+async function executeLitActionWithRetry(
+  source: { kind: string; name: string },
+  chainName: string,
+): Promise<LitActionResponse> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= LIT_MAX_RETRIES; attempt++) {
     try {
-      return await withTimeout(
-        executeLitAction(source, chainName),
-        LIT_TIMEOUT_MS,
-        'Lit Action execution',
-      );
+      return await executeLitAction(source, chainName);
     } catch (e) {
       lastError = e;
       console.error(`Lit attempt ${attempt + 1}/${LIT_MAX_RETRIES + 1} failed:`, e);
@@ -336,42 +266,25 @@ async function handlePost(bodyText: string) {
 
   // Execute Lit Action
   try {
-    const result = await executeLitActionWithRetry({ kind: sourceKind, name }, chainName);
+    const response = await executeLitActionWithRetry({ kind: sourceKind, name }, chainName);
 
-    const rawResponse =
-      typeof result.response === 'string' ? JSON.parse(result.response) : result.response;
-
-    const litResponseSchema = z.object({
-      sourceId: z.number(),
-      name: z.string(),
-      owners: z.record(z.string(), z.string()),
-      timestamp: z.number(),
-    });
-
-    const response = litResponseSchema.parse(rawResponse);
-
-    const owner = response.owners[chainName];
-    if (!owner) {
+    const claim = response.chains[chainName];
+    if (!claim) {
       return errorResponse(400, `No owner found for chain '${chainName}'`);
     }
-
-    const chainSig = result.signatures?.[chainName];
-    if (!chainSig) {
-      return errorResponse(500, `No signature returned by Lit for chain '${chainName}'`);
-    }
-
-    const { sourceId, name: responseName, timestamp } = response;
-
-    // Convert signature to EIP-2098 compact format
-    const sig = Signature.from(chainSig.signature + '0' + chainSig.recoveryId);
-    const r = sig.r;
-    const vs = sig.yParityAndS;
 
     if (redis) {
       await redis.set(rateLimitKey, '1', { EX: RATE_LIMIT_COOLDOWN_SECONDS });
     }
 
-    return jsonResponse(200, { sourceId, name: responseName, owner, timestamp, r, vs });
+    return jsonResponse(200, {
+      sourceId: response.sourceId,
+      name: response.name,
+      owner: claim.owner,
+      timestamp: response.timestamp,
+      r: claim.r,
+      vs: claim.vs,
+    });
   } catch (e) {
     console.error('Lit owner signature error (all retries exhausted):', e);
     return errorResponse(500, e instanceof Error ? e.message : 'Failed to get owner signature from Lit');
